@@ -2,7 +2,7 @@ package com.whats.krdrx
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.media.MediaController
+import android.widget.MediaController
 import android.media.MediaMetadataRetriever
 import android.util.Size
 import android.widget.VideoView
@@ -294,6 +294,9 @@ private fun StatusDownloaderScreen(modifier: Modifier = Modifier) {
             }
         }
     }
+    if (previewFile != null) {
+        StatusPreviewDialog(file = previewFile!!, onDismiss = { previewFile = null })
+    }
 }
 
 
@@ -480,10 +483,6 @@ private fun NotificationArchiveScreen(modifier: Modifier = Modifier) {
                 }
             }
         }
-    }
-
-    if (previewFile != null) {
-        StatusPreviewDialog(file = previewFile!!, onDismiss = { previewFile = null })
     }
 
     if (confirmClear) {
