@@ -1,6 +1,8 @@
 package com.whats.krdrx
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.util.Size
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -10,20 +12,26 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -264,7 +272,7 @@ private fun StatusDownloaderScreen(modifier: Modifier = Modifier) {
                 items(files, key = { it.uri.toString() }) { file ->
                     Card {
                         Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(if (file.isVideo) Icons.Default.Videocam else Icons.Default.Image, null, tint = MaterialTheme.colorScheme.primary)
+                            StatusThumbnail(file, Modifier.size(104.dp))
                             Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
                                 Text(file.name, fontWeight = FontWeight.Medium, maxLines = 2)
                                 Text(if (file.isVideo) "Video" else "Foto", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
@@ -278,6 +286,53 @@ private fun StatusDownloaderScreen(modifier: Modifier = Modifier) {
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+
+@Composable
+private fun StatusThumbnail(file: StatusFile, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val bitmap by produceState<Bitmap?>(initialValue = null, key1 = file.uri) {
+        value = withContext(Dispatchers.IO) {
+            runCatching {
+                context.contentResolver.loadThumbnail(file.uri, Size(320, 320), null)
+            }.getOrNull()
+        }
+    }
+
+    if (bitmap != null) {
+        Box(modifier.clip(RoundedCornerShape(12.dp))) {
+            Image(
+                bitmap = bitmap!!.asImageBitmap(),
+                contentDescription = if (file.isVideo) "Pratinjau video" else "Pratinjau foto",
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+            if (file.isVideo) {
+                Icon(
+                    Icons.Default.PlayCircle,
+                    contentDescription = "Video",
+                    tint = Color.White,
+                    modifier = Modifier.align(Alignment.Center).size(38.dp)
+                )
+            }
+        }
+    } else {
+        Surface(
+            modifier = modifier,
+            shape = RoundedCornerShape(12.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    if (file.isVideo) Icons.Default.Videocam else Icons.Default.Image,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(38.dp)
+                )
             }
         }
     }
