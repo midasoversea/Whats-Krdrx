@@ -2,7 +2,10 @@ package com.whats.krdrx
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.media.MediaController
+import android.media.MediaMetadataRetriever
 import android.util.Size
+import android.widget.VideoView
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -30,6 +33,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -202,6 +207,7 @@ private fun StatusDownloaderScreen(modifier: Modifier = Modifier) {
     val files = remember { mutableStateListOf<StatusFile>() }
     var loading by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
+    var previewFile by remember { mutableStateOf<StatusFile?>(null) }
 
     fun loadFiles() {
         val selected = tree ?: return
@@ -271,7 +277,7 @@ private fun StatusDownloaderScreen(modifier: Modifier = Modifier) {
                 items(files, key = { it.uri.toString() }) { file ->
                     Card {
                         Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                            StatusThumbnail(file, Modifier.size(104.dp))
+                            StatusThumbnail(file, Modifier.size(104.dp), onClick = { previewFile = file })
                             Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
                                 Text(file.name, fontWeight = FontWeight.Medium, maxLines = 2)
                                 Text(if (file.isVideo) "Video" else "Foto", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
@@ -292,46 +298,128 @@ private fun StatusDownloaderScreen(modifier: Modifier = Modifier) {
 
 
 @Composable
-private fun StatusThumbnail(file: StatusFile, modifier: Modifier = Modifier) {
+private fun StatusThumbnail(
+    file: StatusFile,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
     val context = LocalContext.current
     val bitmap by produceState<Bitmap?>(initialValue = null, key1 = file.uri) {
         value = withContext(Dispatchers.IO) {
             runCatching {
-                context.contentResolver.loadThumbnail(file.uri, Size(320, 320), null)
+                if (file.isVideo) {
+                    MediaMetadataRetriever().let { retriever ->
+                        try {
+                            retriever.setDataSource(context, file.uri)
+                            retriever.getScaledFrameAtTime(
+                                1_000_000L,
+                                MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
+                                320,
+                                320
+                            )
+                        } finally {
+                            retriever.release()
+                        }
+                    } ?: context.contentResolver.loadThumbnail(file.uri, Size(320, 320), null)
+                } else {
+                    context.contentResolver.loadThumbnail(file.uri, Size(320, 320), null)
+                }
             }.getOrNull()
         }
     }
 
-    if (bitmap != null) {
-        Box(modifier.clip(RoundedCornerShape(12.dp))) {
-            Image(
-                bitmap = bitmap!!.asImageBitmap(),
-                contentDescription = if (file.isVideo) "Pratinjau video" else "Pratinjau foto",
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop
-            )
-            if (file.isVideo) {
-                Icon(
-                    Icons.Default.PlayCircle,
-                    contentDescription = "Video",
-                    tint = Color.White,
-                    modifier = Modifier.align(Alignment.Center).size(38.dp)
+    Surface(
+        modifier = modifier.clip(RoundedCornerShape(12.dp)),
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        onClick = onClick
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            if (bitmap != null) {
+                Image(
+                    bitmap = bitmap!!.asImageBitmap(),
+                    contentDescription = if (file.isVideo) "Putar pratinjau video" else "Lihat foto",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
                 )
-            }
-        }
-    } else {
-        Surface(
-            modifier = modifier,
-            shape = RoundedCornerShape(12.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant
-        ) {
-            Box(contentAlignment = Alignment.Center) {
+            } else {
                 Icon(
                     if (file.isVideo) Icons.Default.Videocam else Icons.Default.Image,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(38.dp)
                 )
+            }
+            if (file.isVideo) {
+                Icon(
+                    Icons.Default.PlayCircle,
+                    contentDescription = "Putar video",
+                    tint = Color.White,
+                    modifier = Modifier.size(42.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun StatusPreviewDialog(file: StatusFile, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(18.dp),
+            color = MaterialTheme.colorScheme.surface,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(Modifier.padding(12.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        if (file.isVideo) "Pratinjau video" else "Pratinjau foto",
+                        modifier = Modifier.weight(1f),
+                        fontWeight = FontWeight.Bold
+                    )
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Default.Close, contentDescription = "Tutup")
+                    }
+                }
+                if (file.isVideo) {
+                    key(file.uri) {
+                        AndroidView(
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 220.dp, max = 480.dp),
+                            factory = { ctx ->
+                                VideoView(ctx).apply {
+                                    setVideoURI(file.uri)
+                                    setMediaController(MediaController(ctx).also { it.setAnchorView(this) })
+                                    setOnPreparedListener { player ->
+                                        player.isLooping = false
+                                        start()
+                                    }
+                                }
+                            },
+                            onRelease = { it.stopPlayback() }
+                        )
+                    }
+                } else {
+                    val bitmap by produceState<Bitmap?>(initialValue = null, key1 = file.uri) {
+                        value = withContext(Dispatchers.IO) {
+                            runCatching {
+                                context.contentResolver.loadThumbnail(file.uri, Size(1200, 1600), null)
+                            }.getOrNull()
+                        }
+                    }
+                    if (bitmap != null) {
+                        Image(
+                            bitmap = bitmap!!.asImageBitmap(),
+                            contentDescription = "Foto status",
+                            modifier = Modifier.fillMaxWidth().heightIn(max = 560.dp),
+                            contentScale = ContentScale.Fit
+                        )
+                    } else {
+                        Text("Foto tidak dapat dibuka.")
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                Text(file.name, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
@@ -392,6 +480,10 @@ private fun NotificationArchiveScreen(modifier: Modifier = Modifier) {
                 }
             }
         }
+    }
+
+    if (previewFile != null) {
+        StatusPreviewDialog(file = previewFile!!, onDismiss = { previewFile = null })
     }
 
     if (confirmClear) {
