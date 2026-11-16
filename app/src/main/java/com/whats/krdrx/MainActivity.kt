@@ -378,8 +378,8 @@ private fun StatusThumbnail(
 @Composable
 private fun StatusPreviewDialog(file: StatusFile, onDismiss: () -> Unit) {
     val context = LocalContext.current
-    var zoom by rememberSaveable(file.uri.toString()) { mutableFloatStateOf(1f) }
-    var pan by rememberSaveable(file.uri.toString()) { mutableStateOf(Offset.Zero) }
+    var zoom by remember(file.uri) { mutableFloatStateOf(1f) }
+    var pan by remember(file.uri) { mutableStateOf(Offset.Zero) }
     var videoView by remember(file.uri) { mutableStateOf<VideoView?>(null) }
     var videoDuration by remember(file.uri) { mutableIntStateOf(0) }
     var videoPosition by remember(file.uri) { mutableIntStateOf(0) }
@@ -429,7 +429,7 @@ private fun StatusPreviewDialog(file: StatusFile, onDismiss: () -> Unit) {
                         }) {
                             Icon(if (videoPlaying) Icons.Default.PauseCircle else Icons.Default.PlayCircle, contentDescription = if (videoPlaying) "Jeda video" else "Putar video", modifier = Modifier.size(38.dp))
                         }
-                        IconButton(enabled = videoView != null, onClick = { videoView?.seekTo((videoView?.currentPosition ?: 0) - 10000) }) {
+                        IconButton(enabled = videoView != null, onClick = { videoView?.seekTo(((videoView?.currentPosition ?: 0) - 10000).coerceAtLeast(0)) }) {
                             Icon(Icons.Default.Replay10, contentDescription = "Mundur 10 detik")
                         }
                         IconButton(enabled = videoView != null, onClick = { videoView?.seekTo((videoView?.currentPosition ?: 0) + 10000) }) {
