@@ -14,6 +14,7 @@ import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
@@ -27,6 +28,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.produceState
@@ -110,6 +112,7 @@ private fun WhatsKrdrxApp(darkMode: Boolean, onToggleTheme: () -> Unit) {
         Triple(Icons.Default.Build, "Tools", "Tools"),
         Triple(Icons.Default.Settings, "Setelan", "Settings")
     )
+    BackHandler(enabled = tab != 0) { tab = 0 }
     val features = listOf(
         Feature("Status Downloader", "Pilih folder .Statuses, lalu simpan foto dan video ke galeri.", Icons.Default.Image),
         Feature("Arsip Notifikasi", "Catat teks pesan yang ditampilkan oleh notifikasi WhatsApp.", Icons.Default.Notifications),
@@ -146,7 +149,7 @@ private fun WhatsKrdrxApp(darkMode: Boolean, onToggleTheme: () -> Unit) {
         }
     ) { padding ->
         when (tab) {
-            0 -> HomeScreen(features, darkMode, onToggleTheme, Modifier.padding(padding))
+            0 -> HomeScreen(features, Modifier.padding(padding))
             1 -> StatusDownloaderScreen(Modifier.padding(padding))
             2 -> NotificationArchiveScreen(Modifier.padding(padding))
             3 -> SimpleScreen("WhatsApp Tools", "Modul alat bantu tambahan akan dikembangkan setelah dua fitur utama stabil.", Modifier.padding(padding))
@@ -156,7 +159,7 @@ private fun WhatsKrdrxApp(darkMode: Boolean, onToggleTheme: () -> Unit) {
 }
 
 @Composable
-private fun HomeScreen(features: List<Feature>, darkMode: Boolean, onToggleTheme: () -> Unit, modifier: Modifier = Modifier) {
+private fun HomeScreen(features: List<Feature>, modifier: Modifier = Modifier) {
     LazyColumn(
         modifier = modifier.fillMaxSize().padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -169,15 +172,12 @@ private fun HomeScreen(features: List<Feature>, darkMode: Boolean, onToggleTheme
                     Spacer(Modifier.height(5.dp))
                     Text("Pendamping praktis untuk media dan notifikasi WhatsApp.", color = Color.White.copy(alpha = 0.9f))
                     Spacer(Modifier.height(14.dp))
-                    Text("Versi 1.3.1  •  Android 11+", color = Color.White.copy(alpha = 0.72f), fontSize = 12.sp)
+                    Text("Versi 1.4.2  •  Android 11+", color = Color.White.copy(alpha = 0.72f), fontSize = 12.sp)
                 }
             }
         }
         item {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Fitur utama", fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                Text("2 fitur aktif", color = MaterialTheme.colorScheme.primary, fontSize = 12.sp)
-            }
+            Text("Fitur utama", fontSize = 18.sp, fontWeight = FontWeight.Bold)
         }
         items(features) { feature ->
             Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
@@ -190,18 +190,6 @@ private fun HomeScreen(features: List<Feature>, darkMode: Boolean, onToggleTheme
                         Text(feature.description, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f))
                     }
                     Text(feature.status, color = MaterialTheme.colorScheme.primary, fontSize = 9.sp, fontWeight = FontWeight.Bold)
-                }
-            }
-        }
-        item {
-            Card {
-                Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(if (darkMode) Icons.Default.DarkMode else Icons.Default.LightMode, null, tint = MaterialTheme.colorScheme.primary)
-                    Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                        Text(if (darkMode) "Tema Gelap" else "Tema Terang", fontWeight = FontWeight.SemiBold)
-                        Text("Ketuk sekali untuk mengganti tema.", fontSize = 12.sp)
-                    }
-                    Switch(checked = darkMode, onCheckedChange = { onToggleTheme() })
                 }
             }
         }
@@ -268,7 +256,6 @@ private fun StatusDownloaderScreen(modifier: Modifier = Modifier) {
     Column(modifier.fillMaxSize().padding(16.dp)) {
         Text("Status Downloader", fontSize = 22.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(6.dp))
-        Text("Akses hanya ke folder yang kamu pilih melalui pemilih folder Android.", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
         Spacer(Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (tree == null) {
@@ -651,12 +638,15 @@ private fun formatVideoTime(milliseconds: Int): String {
     return "%d:%02d".format(totalSeconds / 60, totalSeconds % 60)
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun NotificationArchiveScreen(modifier: Modifier = Modifier) {
     val context = LocalContext.current
     var access by remember { mutableStateOf(isNotificationAccessEnabled(context)) }
     val rows = remember { mutableStateListOf<ArchivedNotification>() }
     var confirmClear by remember { mutableStateOf(false) }
+    var refreshing by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
 
     fun refresh() {
         access = isNotificationAccessEnabled(context)
@@ -670,37 +660,66 @@ private fun NotificationArchiveScreen(modifier: Modifier = Modifier) {
 
     Column(modifier.fillMaxSize().padding(16.dp)) {
         Text("Arsip Notifikasi", fontSize = 22.sp, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(6.dp))
-        Text("Menyimpan teks yang ditampilkan WhatsApp di notifikasi setelah akses diaktifkan.", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
         Spacer(Modifier.height(12.dp))
-        InfoCard(
-            if (access) "Akses notifikasi aktif" else "Akses notifikasi belum aktif",
-            if (access) "Notifikasi WhatsApp yang berisi teks dapat dicatat." else "Tekan Pengaturan akses, lalu izinkan Whats-Krdrx pada daftar Akses notifikasi Android."
-        )
-        Spacer(Modifier.height(8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }) { Text("Pengaturan akses") }
-            OutlinedButton(onClick = { refresh() }) { Text("Muat ulang") }
-        }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Catatan tersimpan: " + rows.size, modifier = Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
-            TextButton(enabled = rows.isNotEmpty(), onClick = { confirmClear = true }) { Text("Hapus semua") }
-        }
-        if (rows.isEmpty()) {
-            InfoCard("Belum ada catatan", "Pesan baru yang muncul sebagai notifikasi WhatsApp akan tercatat di sini jika preview notifikasi menampilkan isi pesan.")
+
+        if (!access) {
+            InfoCard(
+                "Akses notifikasi belum aktif",
+                "Tekan Pengaturan akses, lalu izinkan Whats-Krdrx pada daftar Akses notifikasi Android."
+            )
+            Spacer(Modifier.height(8.dp))
+            Button(onClick = { context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }) {
+                Text("Pengaturan akses")
+            }
+            Spacer(Modifier.height(12.dp))
         } else {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(rows, key = { it.id }) { row ->
-                    Card {
-                        Column(Modifier.fillMaxWidth().padding(12.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(row.sender, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                                Text(SimpleDateFormat("dd/MM HH:mm", Locale.getDefault()).format(Date(row.receivedAt)), fontSize = 10.sp)
+            InfoCard("Akses notifikasi aktif", "")
+            Spacer(Modifier.height(12.dp))
+        }
+
+        PullToRefreshBox(
+            isRefreshing = refreshing,
+            onRefresh = {
+                if (!refreshing) {
+                    scope.launch {
+                        refreshing = true
+                        refresh()
+                        refreshing = false
+                    }
+                }
+            },
+            modifier = Modifier.fillMaxSize()
+        ) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                item {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Catatan tersimpan: ${rows.size}", modifier = Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
+                        TextButton(enabled = rows.isNotEmpty(), onClick = { confirmClear = true }) { Text("Hapus semua") }
+                    }
+                }
+                if (rows.isEmpty()) {
+                    item {
+                        InfoCard(
+                            "Belum ada catatan",
+                            "Pesan baru yang muncul sebagai notifikasi WhatsApp akan tercatat di sini jika preview notifikasi menampilkan isi pesan."
+                        )
+                    }
+                } else {
+                    items(rows, key = { it.id }) { row ->
+                        Card {
+                            Column(Modifier.fillMaxWidth().padding(12.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(row.sender, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                                    Text(SimpleDateFormat("dd/MM HH:mm", Locale.getDefault()).format(Date(row.receivedAt)), fontSize = 10.sp)
+                                }
+                                Spacer(Modifier.height(5.dp))
+                                Text(row.message, fontSize = 14.sp)
+                                Spacer(Modifier.height(4.dp))
+                                Text("Sumber: notifikasi Android", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f))
                             }
-                            Spacer(Modifier.height(5.dp))
-                            Text(row.message, fontSize = 14.sp)
-                            Spacer(Modifier.height(4.dp))
-                            Text("Sumber: notifikasi Android", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f))
                         }
                     }
                 }
@@ -761,6 +780,6 @@ private fun SettingsScreen(darkMode: Boolean, onToggleTheme: () -> Unit, modifie
             }
         }
         Spacer(Modifier.height(18.dp))
-        Text("Whats-Krdrx • 1.3.1", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f), fontSize = 12.sp)
+        Text("Whats-Krdrx • 1.4.2", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f), fontSize = 12.sp)
     }
 }
