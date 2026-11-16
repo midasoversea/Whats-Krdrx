@@ -33,6 +33,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.ui.graphics.asImageBitmap
@@ -164,7 +166,7 @@ private fun HomeScreen(features: List<Feature>, darkMode: Boolean, onToggleTheme
                     Spacer(Modifier.height(5.dp))
                     Text("Pendamping praktis untuk media dan notifikasi WhatsApp.", color = Color.White.copy(alpha = 0.9f))
                     Spacer(Modifier.height(14.dp))
-                    Text("Versi 1.3.0  •  Android 11+", color = Color.White.copy(alpha = 0.72f), fontSize = 12.sp)
+                    Text("Versi 1.3.1  •  Android 11+", color = Color.White.copy(alpha = 0.72f), fontSize = 12.sp)
                 }
             }
         }
@@ -384,12 +386,15 @@ private fun StatusPreviewDialog(file: StatusFile, onDismiss: () -> Unit) {
     var videoDuration by remember(file.uri) { mutableIntStateOf(0) }
     var videoPosition by remember(file.uri) { mutableIntStateOf(0) }
     var videoPlaying by remember(file.uri) { mutableStateOf(false) }
+    var seeking by remember(file.uri) { mutableStateOf(false) }
 
-    LaunchedEffect(videoView) {
+    LaunchedEffect(videoView, seeking) {
         while (videoView != null) {
-            videoView?.let { view ->
-                videoPosition = view.currentPosition.coerceAtLeast(0)
-                videoPlaying = view.isPlaying
+            if (!seeking) {
+                videoView?.let { view ->
+                    videoPosition = view.currentPosition.coerceAtLeast(0)
+                    videoPlaying = view.isPlaying
+                }
             }
             kotlinx.coroutines.delay(300)
         }
@@ -425,21 +430,38 @@ private fun StatusPreviewDialog(file: StatusFile, onDismiss: () -> Unit) {
                     )
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
                         IconButton(enabled = videoView != null, onClick = {
-                            videoView?.let { if (it.isPlaying) { it.pause(); videoPlaying = false } else { it.start(); videoPlaying = true } }
+                            val target = ((videoView?.currentPosition ?: videoPosition) - 10_000).coerceAtLeast(0)
+                            videoView?.seekTo(target)
+                            videoPosition = target
                         }) {
-                            Icon(if (videoPlaying) Icons.Default.PauseCircle else Icons.Default.PlayCircle, contentDescription = if (videoPlaying) "Jeda video" else "Putar video", modifier = Modifier.size(38.dp))
-                        }
-                        IconButton(enabled = videoView != null, onClick = { videoView?.seekTo(((videoView?.currentPosition ?: 0) - 10000).coerceAtLeast(0)) }) {
                             Icon(Icons.Default.Replay10, contentDescription = "Mundur 10 detik")
                         }
-                        IconButton(enabled = videoView != null, onClick = { videoView?.seekTo((videoView?.currentPosition ?: 0) + 10000) }) {
+                        IconButton(enabled = videoView != null, onClick = {
+                            videoView?.let { view ->
+                                if (view.isPlaying) { view.pause(); videoPlaying = false }
+                                else { view.start(); videoPlaying = true }
+                            }
+                        }) {
+                            Icon(if (videoPlaying) Icons.Default.PauseCircle else Icons.Default.PlayCircle, contentDescription = if (videoPlaying) "Jeda video" else "Putar video", modifier = Modifier.size(42.dp))
+                        }
+                        IconButton(enabled = videoView != null, onClick = {
+                            val target = ((videoView?.currentPosition ?: videoPosition) + 10_000).coerceAtMost(videoDuration)
+                            videoView?.seekTo(target)
+                            videoPosition = target
+                        }) {
                             Icon(Icons.Default.Forward10, contentDescription = "Maju 10 detik")
                         }
                     }
                     Slider(
                         value = videoPosition.toFloat().coerceIn(0f, videoDuration.coerceAtLeast(1).toFloat()),
-                        onValueChange = { videoPosition = it.toInt() },
-                        onValueChangeFinished = { videoView?.seekTo(videoPosition) },
+                        onValueChange = {
+                            seeking = true
+                            videoPosition = it.toInt()
+                        },
+                        onValueChangeFinished = {
+                            videoView?.seekTo(videoPosition.coerceIn(0, videoDuration))
+                            seeking = false
+                        },
                         valueRange = 0f..videoDuration.coerceAtLeast(1).toFloat(),
                         enabled = videoDuration > 0 && videoView != null
                     )
@@ -448,20 +470,45 @@ private fun StatusPreviewDialog(file: StatusFile, onDismiss: () -> Unit) {
                         Text(formatVideoTime(videoDuration), style = MaterialTheme.typography.labelSmall)
                     }
                 } else {
+                    val displayMetrics = context.resources.displayMetrics
+                    val targetWidth = displayMetrics.widthPixels.coerceAtLeast(1)
+                    val targetHeight = displayMetrics.heightPixels.coerceAtLeast(1)
                     val bitmap by produceState<Bitmap?>(initialValue = null, key1 = file.uri) {
-                        value = withContext(Dispatchers.IO) { runCatching { context.contentResolver.loadThumbnail(file.uri, Size(2000, 2400), null) }.getOrNull() }
+                        value = withContext(Dispatchers.IO) {
+                            runCatching {
+                                context.contentResolver.loadThumbnail(file.uri, Size(targetWidth, targetHeight), null)
+                            }.getOrNull()
+                        }
                     }
                     if (bitmap != null) {
-                        Box(Modifier.fillMaxWidth().heightIn(min = 260.dp, max = 560.dp), contentAlignment = Alignment.Center) {
+                        var imageBoxSize by remember(file.uri) { mutableStateOf(IntSize.Zero) }
+                        val imageAspect = bitmap!!.width.toFloat() / bitmap!!.height.toFloat()
+                        val boxWidth = imageBoxSize.width.toFloat()
+                        val boxHeight = imageBoxSize.height.toFloat()
+                        val fittedWidth = if (boxWidth > 0f && boxHeight > 0f) minOf(boxWidth, boxHeight * imageAspect) else 0f
+                        val fittedHeight = if (boxWidth > 0f && boxHeight > 0f) minOf(boxHeight, boxWidth / imageAspect) else 0f
+                        val maxPanX = fittedWidth * (zoom - 1f) / 2f
+                        val maxPanY = fittedHeight * (zoom - 1f) / 2f
+                        Box(
+                            Modifier.fillMaxWidth()
+                                .heightIn(min = 260.dp, max = 560.dp)
+                                .onSizeChanged { imageBoxSize = it },
+                            contentAlignment = Alignment.Center
+                        ) {
                             Image(
                                 bitmap = bitmap!!.asImageBitmap(),
                                 contentDescription = "Foto status, cubit untuk memperbesar",
-                                modifier = Modifier.fillMaxWidth()
-                                    .pointerInput(file.uri) {
+                                modifier = Modifier.fillMaxSize()
+                                    .pointerInput(file.uri, bitmap, imageBoxSize) {
                                         detectTransformGestures { _, panChange, zoomChange, _ ->
-                                            zoom = (zoom * zoomChange).coerceIn(1f, 5f)
-                                            pan += panChange
-                                            if (zoom <= 1f) pan = Offset.Zero
+                                            val nextZoom = (zoom * zoomChange).coerceIn(1f, 5f)
+                                            zoom = nextZoom
+                                            val nextMaxX = fittedWidth * (nextZoom - 1f) / 2f
+                                            val nextMaxY = fittedHeight * (nextZoom - 1f) / 2f
+                                            pan = if (nextZoom <= 1f) Offset.Zero else Offset(
+                                                x = (pan.x + panChange.x).coerceIn(-nextMaxX, nextMaxX),
+                                                y = (pan.y + panChange.y).coerceIn(-nextMaxY, nextMaxY)
+                                            )
                                         }
                                     }
                                     .graphicsLayer(scaleX = zoom, scaleY = zoom, translationX = pan.x, translationY = pan.y),
@@ -598,6 +645,6 @@ private fun SettingsScreen(darkMode: Boolean, onToggleTheme: () -> Unit, modifie
             }
         }
         Spacer(Modifier.height(18.dp))
-        Text("Whats-Krdrx • 1.3.0", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f), fontSize = 12.sp)
+        Text("Whats-Krdrx • 1.3.1", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f), fontSize = 12.sp)
     }
 }
