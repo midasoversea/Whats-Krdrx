@@ -683,12 +683,19 @@ private fun NotificationArchiveScreen(modifier: Modifier = Modifier) {
                 if (!refreshing) {
                     scope.launch {
                         refreshing = true
-                        refresh()
+                        access = isNotificationAccessEnabled(context)
+                        val latest = withContext(Dispatchers.IO) {
+                            runCatching { NotificationArchiveDb(context).use { it.all() } }
+                        }
+                        latest.onSuccess {
+                            rows.clear()
+                            rows.addAll(it)
+                        }
                         refreshing = false
                     }
                 }
             },
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier.weight(1f).fillMaxWidth()
         ) {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
@@ -749,8 +756,10 @@ private fun InfoCard(title: String, description: String) {
     Card {
         Column(Modifier.fillMaxWidth().padding(14.dp)) {
             Text(title, fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.height(4.dp))
-            Text(description, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
+            if (description.isNotBlank()) {
+                Spacer(Modifier.height(4.dp))
+                Text(description, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
+            }
         }
     }
 }
