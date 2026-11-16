@@ -28,9 +28,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
-import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
-import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.produceState
@@ -55,7 +52,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -260,16 +256,23 @@ private fun StatusDownloaderScreen(modifier: Modifier = Modifier) {
         Text("Status Downloader", fontSize = 22.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(6.dp))
         Spacer(Modifier.height(12.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
             if (tree == null) {
                 Button(onClick = { picker.launch(null) }) {
                     Icon(Icons.Default.FolderOpen, null)
                     Spacer(Modifier.width(5.dp))
                     Text("Pilih folder .Statuses")
                 }
+            } else {
+                Spacer(Modifier.width(1.dp))
             }
             OutlinedButton(onClick = { loadFiles() }, enabled = tree != null && !loading) {
                 Icon(Icons.Default.Refresh, null)
+                Spacer(Modifier.width(4.dp))
                 Text("Muat ulang")
             }
         }
@@ -641,29 +644,42 @@ private fun formatVideoTime(milliseconds: Int): String {
     return "%d:%02d".format(totalSeconds / 60, totalSeconds % 60)
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun NotificationArchiveScreen(modifier: Modifier = Modifier) {
     val context = LocalContext.current
     var access by remember { mutableStateOf(isNotificationAccessEnabled(context)) }
     val rows = remember { mutableStateListOf<ArchivedNotification>() }
     var confirmClear by remember { mutableStateOf(false) }
-    var refreshing by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
-    val pullToRefreshState = rememberPullToRefreshState()
 
     fun refresh() {
-        access = isNotificationAccessEnabled(context)
-        runCatching { NotificationArchiveDb(context).use { it.all() } }.onSuccess {
-            rows.clear()
-            rows.addAll(it)
+        scope.launch {
+            access = isNotificationAccessEnabled(context)
+            val latest = withContext(Dispatchers.IO) {
+                runCatching { NotificationArchiveDb(context).use { it.all() } }
+            }
+            latest.onSuccess {
+                rows.clear()
+                rows.addAll(it)
+            }
         }
     }
 
     LaunchedEffect(Unit) { refresh() }
 
     Column(modifier.fillMaxSize().padding(16.dp)) {
-        Text("Arsip Notifikasi", fontSize = 22.sp, fontWeight = FontWeight.Bold)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text("Arsip Notifikasi", fontSize = 22.sp, fontWeight = FontWeight.Bold)
+            OutlinedButton(onClick = { refresh() }) {
+                Icon(Icons.Default.Refresh, null)
+                Spacer(Modifier.width(4.dp))
+                Text("Muat ulang")
+            }
+        }
         Spacer(Modifier.height(12.dp))
 
         if (!access) {
@@ -681,46 +697,7 @@ private fun NotificationArchiveScreen(modifier: Modifier = Modifier) {
             Spacer(Modifier.height(12.dp))
         }
 
-        PullToRefreshBox(
-            state = pullToRefreshState,
-            isRefreshing = refreshing,
-            onRefresh = {
-                if (!refreshing) {
-                    scope.launch {
-                        refreshing = true
-                        try {
-                            access = isNotificationAccessEnabled(context)
-                            val latest = withContext(Dispatchers.IO) {
-                                runCatching { NotificationArchiveDb(context).use { it.all() } }
-                            }
-                            latest.onSuccess {
-                                rows.clear()
-                                rows.addAll(it)
-                            }
-                            // Keep the spinner visible long enough to be perceived.
-                            delay(700)
-                        } finally {
-                            refreshing = false
-                        }
-                    }
-                }
-            },
-            modifier = Modifier.weight(1f).fillMaxWidth(),
-            indicator = {
-                if (refreshing) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.align(Alignment.TopCenter).padding(top = 16.dp).size(24.dp),
-                        strokeWidth = 2.dp
-                    )
-                } else {
-                    PullToRefreshDefaults.Indicator(
-                        state = pullToRefreshState,
-                        isRefreshing = false,
-                        modifier = Modifier.align(Alignment.TopCenter)
-                    )
-                }
-            }
-        ) {
+        Box(Modifier.weight(1f).fillMaxWidth()) {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 verticalArrangement = Arrangement.spacedBy(8.dp)

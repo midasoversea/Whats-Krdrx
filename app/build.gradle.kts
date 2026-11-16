@@ -23,8 +23,8 @@ android {
         applicationId = "com.whats.krdrx"
         minSdk = 30
         targetSdk = 35
-        versionCode = 9
-        versionName = "1.4.3"
+        versionCode = 10
+        versionName = "1.4.4"
     }
 
     signingConfigs {
