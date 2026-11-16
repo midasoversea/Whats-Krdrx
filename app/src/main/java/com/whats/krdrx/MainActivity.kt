@@ -30,6 +30,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -92,7 +96,7 @@ private data class Feature(val title: String, val description: String, val icon:
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun WhatsKrdrxApp(darkMode: Boolean, onToggleTheme: () -> Unit) {
-    var tab by remember { mutableIntStateOf(0) }
+    var tab by rememberSaveable { mutableIntStateOf(0) }
     val tabs = listOf(
         Triple(Icons.Default.Home, "Beranda", "Home"),
         Triple(Icons.Default.Image, "Status", "Status"),
@@ -159,7 +163,7 @@ private fun HomeScreen(features: List<Feature>, darkMode: Boolean, onToggleTheme
                     Spacer(Modifier.height(5.dp))
                     Text("Pendamping praktis untuk media dan notifikasi WhatsApp.", color = Color.White.copy(alpha = 0.9f))
                     Spacer(Modifier.height(14.dp))
-                    Text("Versi 1.1.0  •  Android 11+", color = Color.White.copy(alpha = 0.72f), fontSize = 12.sp)
+                    Text("Versi 1.3.0  •  Android 11+", color = Color.White.copy(alpha = 0.72f), fontSize = 12.sp)
                 }
             }
         }
@@ -207,7 +211,9 @@ private fun StatusDownloaderScreen(modifier: Modifier = Modifier) {
     val files = remember { mutableStateListOf<StatusFile>() }
     var loading by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
-    var previewFile by remember { mutableStateOf<StatusFile?>(null) }
+    var previewUri by rememberSaveable { mutableStateOf<String?>(null) }
+    var previewName by rememberSaveable { mutableStateOf("") }
+    var previewMime by rememberSaveable { mutableStateOf("") }
 
     fun loadFiles() {
         val selected = tree ?: return
@@ -277,7 +283,7 @@ private fun StatusDownloaderScreen(modifier: Modifier = Modifier) {
                 items(files, key = { it.uri.toString() }) { file ->
                     Card {
                         Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                            StatusThumbnail(file, Modifier.size(104.dp), onClick = { previewFile = file })
+                            StatusThumbnail(file, Modifier.size(104.dp), onClick = { previewUri = file.uri.toString(); previewName = file.name; previewMime = file.mimeType })
                             Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
                                 Text(file.name, fontWeight = FontWeight.Medium, maxLines = 2)
                                 Text(if (file.isVideo) "Video" else "Foto", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
@@ -294,8 +300,11 @@ private fun StatusDownloaderScreen(modifier: Modifier = Modifier) {
             }
         }
     }
-    if (previewFile != null) {
-        StatusPreviewDialog(file = previewFile!!, onDismiss = { previewFile = null })
+    if (previewUri != null) {
+        StatusPreviewDialog(
+            file = StatusFile(Uri.parse(previewUri), previewName, previewMime),
+            onDismiss = { previewUri = null; previewName = ""; previewMime = "" }
+        )
     }
 }
 
@@ -368,58 +377,103 @@ private fun StatusThumbnail(
 @Composable
 private fun StatusPreviewDialog(file: StatusFile, onDismiss: () -> Unit) {
     val context = LocalContext.current
+    var zoom by rememberSaveable(file.uri.toString()) { mutableFloatStateOf(1f) }
+    var pan by rememberSaveable(file.uri.toString()) { mutableStateOf(Offset.Zero) }
+    var videoView by remember(file.uri) { mutableStateOf<VideoView?>(null) }
+    var videoDuration by remember(file.uri) { mutableIntStateOf(0) }
+    var videoPosition by remember(file.uri) { mutableIntStateOf(0) }
+    var videoPlaying by remember(file.uri) { mutableStateOf(false) }
+
+    LaunchedEffect(videoView) {
+        while (videoView != null) {
+            videoView?.let { view ->
+                videoPosition = view.currentPosition.coerceAtLeast(0)
+                videoPlaying = view.isPlaying
+            }
+            kotlinx.coroutines.delay(300)
+        }
+    }
+
     Dialog(onDismissRequest = onDismiss) {
-        Surface(
-            shape = RoundedCornerShape(18.dp),
-            color = MaterialTheme.colorScheme.surface,
-            modifier = Modifier.fillMaxWidth()
-        ) {
+        Surface(shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surface, modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        if (file.isVideo) "Pratinjau video" else "Pratinjau foto",
-                        modifier = Modifier.weight(1f),
-                        fontWeight = FontWeight.Bold
-                    )
-                    IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.Close, contentDescription = "Tutup")
-                    }
+                    Text(if (file.isVideo) "Pratinjau video" else "Pratinjau foto", modifier = Modifier.weight(1f), fontWeight = FontWeight.Bold)
+                    IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, contentDescription = "Tutup") }
                 }
                 if (file.isVideo) {
-                    key(file.uri) {
-                        AndroidView(
-                            modifier = Modifier.fillMaxWidth().heightIn(min = 220.dp, max = 480.dp),
-                            factory = { ctx ->
-                                VideoView(ctx).apply {
-                                    setVideoURI(file.uri)
-                                    setMediaController(MediaController(ctx).also { it.setAnchorView(this) })
-                                    setOnPreparedListener { player ->
-                                        player.isLooping = false
-                                        start()
-                                    }
+                    AndroidView(
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 200.dp, max = 420.dp),
+                        factory = { ctx ->
+                            VideoView(ctx).apply {
+                                videoView = this
+                                setVideoURI(file.uri)
+                                setOnPreparedListener { player ->
+                                    videoDuration = player.duration.coerceAtLeast(0)
+                                    player.isLooping = false
+                                    start()
+                                    videoPlaying = true
                                 }
-                            },
-                            onRelease = { it.stopPlayback() }
-                        )
+                                setOnCompletionListener { videoPlaying = false }
+                            }
+                        },
+                        onRelease = {
+                            it.stopPlayback()
+                            if (videoView === it) videoView = null
+                        }
+                    )
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+                        IconButton(enabled = videoView != null, onClick = {
+                            videoView?.let { if (it.isPlaying) { it.pause(); videoPlaying = false } else { it.start(); videoPlaying = true } }
+                        }) {
+                            Icon(if (videoPlaying) Icons.Default.PauseCircle else Icons.Default.PlayCircle, contentDescription = if (videoPlaying) "Jeda video" else "Putar video", modifier = Modifier.size(38.dp))
+                        }
+                        IconButton(enabled = videoView != null, onClick = { videoView?.seekTo((videoView?.currentPosition ?: 0) - 10000) }) {
+                            Icon(Icons.Default.Replay10, contentDescription = "Mundur 10 detik")
+                        }
+                        IconButton(enabled = videoView != null, onClick = { videoView?.seekTo((videoView?.currentPosition ?: 0) + 10000) }) {
+                            Icon(Icons.Default.Forward10, contentDescription = "Maju 10 detik")
+                        }
+                    }
+                    Slider(
+                        value = videoPosition.toFloat().coerceIn(0f, videoDuration.coerceAtLeast(1).toFloat()),
+                        onValueChange = { videoPosition = it.toInt() },
+                        onValueChangeFinished = { videoView?.seekTo(videoPosition) },
+                        valueRange = 0f..videoDuration.coerceAtLeast(1).toFloat(),
+                        enabled = videoDuration > 0 && videoView != null
+                    )
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text(formatVideoTime(videoPosition), style = MaterialTheme.typography.labelSmall)
+                        Text(formatVideoTime(videoDuration), style = MaterialTheme.typography.labelSmall)
                     }
                 } else {
                     val bitmap by produceState<Bitmap?>(initialValue = null, key1 = file.uri) {
-                        value = withContext(Dispatchers.IO) {
-                            runCatching {
-                                context.contentResolver.loadThumbnail(file.uri, Size(1200, 1600), null)
-                            }.getOrNull()
-                        }
+                        value = withContext(Dispatchers.IO) { runCatching { context.contentResolver.loadThumbnail(file.uri, Size(2000, 2400), null) }.getOrNull() }
                     }
                     if (bitmap != null) {
-                        Image(
-                            bitmap = bitmap!!.asImageBitmap(),
-                            contentDescription = "Foto status",
-                            modifier = Modifier.fillMaxWidth().heightIn(max = 560.dp),
-                            contentScale = ContentScale.Fit
-                        )
-                    } else {
-                        Text("Foto tidak dapat dibuka.")
-                    }
+                        Box(Modifier.fillMaxWidth().heightIn(min = 260.dp, max = 560.dp), contentAlignment = Alignment.Center) {
+                            Image(
+                                bitmap = bitmap!!.asImageBitmap(),
+                                contentDescription = "Foto status, cubit untuk memperbesar",
+                                modifier = Modifier.fillMaxWidth()
+                                    .pointerInput(file.uri) {
+                                        detectTransformGestures { _, panChange, zoomChange, _ ->
+                                            zoom = (zoom * zoomChange).coerceIn(1f, 5f)
+                                            pan += panChange
+                                            if (zoom <= 1f) pan = Offset.Zero
+                                        }
+                                    }
+                                    .graphicsLayer(scaleX = zoom, scaleY = zoom, translationX = pan.x, translationY = pan.y),
+                                contentScale = ContentScale.Fit
+                            )
+                        }
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                            TextButton(onClick = { zoom = 1f; pan = Offset.Zero }) {
+                                Icon(Icons.Default.ZoomOutMap, contentDescription = null)
+                                Text("Atur ulang zoom")
+                            }
+                        }
+                    } else Text("Foto tidak dapat dibuka.")
                 }
                 Spacer(Modifier.height(8.dp))
                 Text(file.name, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -428,7 +482,11 @@ private fun StatusPreviewDialog(file: StatusFile, onDismiss: () -> Unit) {
     }
 }
 
-@Composable
+private fun formatVideoTime(milliseconds: Int): String {
+    val totalSeconds = milliseconds.coerceAtLeast(0) / 1000
+    return "%d:%02d".format(totalSeconds / 60, totalSeconds % 60)
+}
+
 private fun NotificationArchiveScreen(modifier: Modifier = Modifier) {
     val context = LocalContext.current
     var access by remember { mutableStateOf(isNotificationAccessEnabled(context)) }
@@ -538,6 +596,6 @@ private fun SettingsScreen(darkMode: Boolean, onToggleTheme: () -> Unit, modifie
             }
         }
         Spacer(Modifier.height(18.dp))
-        Text("Whats-Krdrx • 1.1.0", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f), fontSize = 12.sp)
+        Text("Whats-Krdrx • 1.3.0", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f), fontSize = 12.sp)
     }
 }
