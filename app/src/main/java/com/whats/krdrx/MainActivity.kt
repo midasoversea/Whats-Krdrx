@@ -2,6 +2,7 @@ package com.whats.krdrx
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.widget.MediaController
 import android.media.MediaMetadataRetriever
 import android.util.Size
@@ -270,10 +271,12 @@ private fun StatusDownloaderScreen(modifier: Modifier = Modifier) {
         Text("Akses hanya ke folder yang kamu pilih melalui pemilih folder Android.", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
         Spacer(Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { picker.launch(null) }) {
-                Icon(Icons.Default.FolderOpen, null)
-                Spacer(Modifier.width(5.dp))
-                Text(if (tree == null) "Pilih folder .Statuses" else "Ganti folder")
+            if (tree == null) {
+                Button(onClick = { picker.launch(null) }) {
+                    Icon(Icons.Default.FolderOpen, null)
+                    Spacer(Modifier.width(5.dp))
+                    Text("Pilih folder .Statuses")
+                }
             }
             OutlinedButton(onClick = { loadFiles() }, enabled = tree != null && !loading) {
                 Icon(Icons.Default.Refresh, null)
@@ -296,28 +299,34 @@ private fun StatusDownloaderScreen(modifier: Modifier = Modifier) {
                 }) { Text(if (selected.size == files.size) "Batal pilih" else "Pilih semua") }
             }
             if (selected.isNotEmpty()) {
+                val selectedFiles = files.filter { it.uri.toString() in selected }
+                val unsavedSelected = selectedFiles.filterNot { StatusStorage.isSaved(context, it) }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(
-                        modifier = Modifier.weight(1f),
-                        enabled = !saving,
-                        onClick = {
-                            scope.launch {
-                                saving = true
-                                var count = 0
-                                var skipped = 0
-                                val chosen = files.filter { it.uri.toString() in selected }
-                                chosen.forEach { file ->
-                                    val result = withContext(Dispatchers.IO) { runCatching { StatusStorage.save(context, file) } }
-                                    if (result.isSuccess) count++ else skipped++
+                    if (unsavedSelected.isNotEmpty()) {
+                        Button(
+                            modifier = Modifier.weight(1f),
+                            enabled = !saving,
+                            onClick = {
+                                scope.launch {
+                                    saving = true
+                                    var count = 0
+                                    var skipped = 0
+                                    unsavedSelected.forEach { file ->
+                                        val result = withContext(Dispatchers.IO) { runCatching { StatusStorage.save(context, file) } }
+                                        if (result.isSuccess) count++ else skipped++
+                                    }
+                                    saving = false
+                                    selected.clear()
+                                    loadFiles()
+                                    Toast.makeText(context, "Berhasil: $count • Gagal: $skipped", Toast.LENGTH_LONG).show()
                                 }
-                                saving = false
-                                selected.clear()
-                                loadFiles()
-                                Toast.makeText(context, "Berhasil: $count • Gagal: $skipped", Toast.LENGTH_LONG).show()
                             }
-                        }
-                    ) { Text(if (saving) "Menyimpan..." else "Simpan (${selected.size})") }
-                    OutlinedButton(modifier = Modifier.weight(1f), onClick = { shareSelected() }) {
+                        ) { Text(if (saving) "Menyimpan..." else "Simpan (${unsavedSelected.size})") }
+                    }
+                    OutlinedButton(
+                        modifier = Modifier.weight(1f),
+                        onClick = { shareSelected() }
+                    ) {
                         Icon(Icons.Default.Share, null)
                         Spacer(Modifier.width(4.dp))
                         Text("Bagikan")
@@ -566,7 +575,7 @@ private fun StatusPreviewDialog(file: StatusFile, onDismiss: () -> Unit) {
                     val bitmap by produceState<Bitmap?>(initialValue = null, key1 = file.uri) {
                         value = withContext(Dispatchers.IO) {
                             runCatching {
-                                context.contentResolver.loadThumbnail(file.uri, Size(targetWidth, targetHeight), null)
+                                loadStatusPhotoBitmap(context, file.uri, targetWidth, targetHeight)
                             }.getOrNull()
                         }
                     }
@@ -618,6 +627,23 @@ private fun StatusPreviewDialog(file: StatusFile, onDismiss: () -> Unit) {
             }
         }
     }
+}
+
+private fun loadStatusPhotoBitmap(context: Context, uri: Uri, width: Int, height: Int): Bitmap? {
+    val resolver = context.contentResolver
+    val thumbnail = runCatching { resolver.loadThumbnail(uri, Size(width, height), null) }.getOrNull()
+    if (thumbnail != null) return thumbnail
+
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+
+    var sample = 1
+    while (bounds.outWidth / sample > width * 2 || bounds.outHeight / sample > height * 2) {
+        sample *= 2
+    }
+    val options = BitmapFactory.Options().apply { inSampleSize = sample }
+    return resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) }
 }
 
 private fun formatVideoTime(milliseconds: Int): String {
