@@ -253,27 +253,24 @@ private fun StatusDownloaderScreen(modifier: Modifier = Modifier) {
     }
 
     Column(modifier.fillMaxSize().padding(16.dp)) {
-        Text("Status Downloader", fontSize = 22.sp, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(6.dp))
-        Spacer(Modifier.height(12.dp))
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            if (tree == null) {
-                Button(onClick = { picker.launch(null) }) {
-                    Icon(Icons.Default.FolderOpen, null)
-                    Spacer(Modifier.width(5.dp))
-                    Text("Pilih folder .Statuses")
-                }
-            } else {
-                Spacer(Modifier.width(1.dp))
-            }
+            Text("Status Downloader", fontSize = 22.sp, fontWeight = FontWeight.Bold)
             OutlinedButton(onClick = { loadFiles() }, enabled = tree != null && !loading) {
                 Icon(Icons.Default.Refresh, null)
                 Spacer(Modifier.width(4.dp))
                 Text("Muat ulang")
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        if (tree == null) {
+            Button(onClick = { picker.launch(null) }) {
+                Icon(Icons.Default.FolderOpen, null)
+                Spacer(Modifier.width(5.dp))
+                Text("Pilih folder .Statuses")
             }
         }
         Spacer(Modifier.height(10.dp))
