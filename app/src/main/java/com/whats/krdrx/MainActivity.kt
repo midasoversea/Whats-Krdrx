@@ -17,6 +17,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -207,7 +208,7 @@ private fun HomeScreen(features: List<Feature>, darkMode: Boolean, onToggleTheme
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 private fun StatusDownloaderScreen(modifier: Modifier = Modifier) {
     val context = LocalContext.current
@@ -381,7 +382,7 @@ private fun StatusDownloaderScreen(modifier: Modifier = Modifier) {
                                             if (result.isSuccess) "Disimpan ke Pictures/Whats-Krdrx" else result.exceptionOrNull()?.message ?: "Gagal menyimpan file.",
                                             Toast.LENGTH_SHORT
                                         ).show()
-                                        files.replaceAll { it.copy() }
+                                        loadFiles()
                                     }
                                 }, enabled = !saving && !isSaved) {
                                     Icon(if (isSaved) Icons.Default.CheckCircle else Icons.Default.Download, if (isSaved) "Sudah disimpan" else "Simpan ke galeri")
