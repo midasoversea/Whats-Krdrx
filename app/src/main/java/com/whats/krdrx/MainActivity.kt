@@ -16,6 +16,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -206,12 +207,14 @@ private fun HomeScreen(features: List<Feature>, darkMode: Boolean, onToggleTheme
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun StatusDownloaderScreen(modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var tree by remember { mutableStateOf(StatusStorage.savedTree(context)) }
     val files = remember { mutableStateListOf<StatusFile>() }
+    val selected = remember { mutableStateListOf<String>() }
     var loading by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
     var previewUri by rememberSaveable { mutableStateOf<String?>(null) }
@@ -219,12 +222,13 @@ private fun StatusDownloaderScreen(modifier: Modifier = Modifier) {
     var previewMime by rememberSaveable { mutableStateOf("") }
 
     fun loadFiles() {
-        val selected = tree ?: return
+        val selectedTree = tree ?: return
         scope.launch {
             loading = true
-            val result = withContext(Dispatchers.IO) { runCatching { StatusStorage.list(context, selected) } }
+            val result = withContext(Dispatchers.IO) { runCatching { StatusStorage.list(context, selectedTree) } }
             files.clear()
             result.getOrNull()?.let { files.addAll(it) }
+            selected.retainAll(files.map { it.uri.toString() }.toSet())
             if (result.isFailure) {
                 tree = null
                 Toast.makeText(context, "Folder tidak dapat dibaca. Pilih ulang folder .Statuses.", Toast.LENGTH_LONG).show()
@@ -236,12 +240,28 @@ private fun StatusDownloaderScreen(modifier: Modifier = Modifier) {
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri: Uri? ->
         if (uri != null) {
             runCatching { StatusStorage.rememberTree(context, uri) }
-                .onSuccess { tree = uri; loadFiles() }
+                .onSuccess { tree = uri; selected.clear(); loadFiles() }
                 .onFailure { Toast.makeText(context, "Izin folder gagal disimpan.", Toast.LENGTH_LONG).show() }
         }
     }
 
     LaunchedEffect(tree) { if (tree != null) loadFiles() }
+
+    fun shareSelected() {
+        val chosen = files.filter { it.uri.toString() in selected }
+        if (chosen.isEmpty()) return
+        val uris = ArrayList(chosen.map { it.uri })
+        val intent = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+            type = if (chosen.all { it.isVideo }) "video/*" else if (chosen.all { !it.isVideo }) "image/*" else "*/*"
+            putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            clipData = android.content.ClipData.newUri(context.contentResolver, chosen.first().name, chosen.first().uri).apply {
+                chosen.drop(1).forEach { addItem(android.content.ClipData.Item(it.uri)) }
+            }
+        }
+        runCatching { context.startActivity(Intent.createChooser(intent, "Bagikan status")) }
+            .onFailure { Toast.makeText(context, "Tidak ada aplikasi yang dapat menerima media ini.", Toast.LENGTH_LONG).show() }
+    }
 
     Column(modifier.fillMaxSize().padding(16.dp)) {
         Text("Status Downloader", fontSize = 22.sp, fontWeight = FontWeight.Bold)
@@ -268,35 +288,105 @@ private fun StatusDownloaderScreen(modifier: Modifier = Modifier) {
             InfoCard("Tidak ada media ditemukan", "Lihat Status di WhatsApp terlebih dahulu, lalu tekan Muat ulang. Pastikan folder yang dipilih adalah .Statuses.")
         } else {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(files.size.toString() + " file ditemukan", modifier = Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
-                TextButton(enabled = !saving, onClick = {
-                    scope.launch {
-                        saving = true
-                        var count = 0
-                        files.toList().forEach { file ->
-                            val saved = withContext(Dispatchers.IO) { runCatching { StatusStorage.save(context, file) } }
-                            if (saved.isSuccess) count++
+                Text(if (selected.isEmpty()) "${files.size} file ditemukan" else "${selected.size} dipilih", modifier = Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
+                TextButton(onClick = {
+                    if (selected.size == files.size) selected.clear()
+                    else { selected.clear(); selected.addAll(files.map { it.uri.toString() }) }
+                }) { Text(if (selected.size == files.size) "Batal pilih" else "Pilih semua") }
+            }
+            if (selected.isNotEmpty()) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        modifier = Modifier.weight(1f),
+                        enabled = !saving,
+                        onClick = {
+                            scope.launch {
+                                saving = true
+                                var count = 0
+                                var skipped = 0
+                                val chosen = files.filter { it.uri.toString() in selected }
+                                chosen.forEach { file ->
+                                    val result = withContext(Dispatchers.IO) { runCatching { StatusStorage.save(context, file) } }
+                                    if (result.isSuccess) count++ else skipped++
+                                }
+                                saving = false
+                                selected.clear()
+                                loadFiles()
+                                Toast.makeText(context, "Berhasil: $count • Gagal: $skipped", Toast.LENGTH_LONG).show()
+                            }
                         }
-                        saving = false
-                        Toast.makeText(context, "Tersimpan " + count + " dari " + files.size + " file.", Toast.LENGTH_LONG).show()
+                    ) { Text(if (saving) "Menyimpan..." else "Simpan (${selected.size})") }
+                    OutlinedButton(modifier = Modifier.weight(1f), onClick = { shareSelected() }) {
+                        Icon(Icons.Default.Share, null)
+                        Spacer(Modifier.width(4.dp))
+                        Text("Bagikan")
                     }
-                }) { Text(if (saving) "Menyimpan..." else "Simpan semua") }
+                }
+            } else {
+                Text("Ketuk media untuk melihat. Tekan lama untuk memilih beberapa file.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(files, key = { it.uri.toString() }) { file ->
-                    Card {
-                        Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                            StatusThumbnail(file, Modifier.size(104.dp), onClick = { previewUri = file.uri.toString(); previewName = file.name; previewMime = file.mimeType })
+                    val key = file.uri.toString()
+                    val isSelected = key in selected
+                    val isSaved = StatusStorage.isSaved(context, file)
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
+                        )
+                    ) {
+                        Row(
+                            Modifier.fillMaxWidth().combinedClickable(
+                                onClick = {
+                                    if (selected.isNotEmpty()) {
+                                        if (isSelected) selected.remove(key) else selected.add(key)
+                                    } else {
+                                        previewUri = key; previewName = file.name; previewMime = file.mimeType
+                                    }
+                                },
+                                onLongClick = {
+                                    if (isSelected) selected.remove(key) else selected.add(key)
+                                }
+                            ).padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            StatusThumbnail(file, Modifier.size(92.dp), onClick = {
+                                if (selected.isNotEmpty()) {
+                                    if (isSelected) selected.remove(key) else selected.add(key)
+                                } else {
+                                    previewUri = key; previewName = file.name; previewMime = file.mimeType
+                                }
+                            })
                             Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
                                 Text(file.name, fontWeight = FontWeight.Medium, maxLines = 2)
                                 Text(if (file.isVideo) "Video" else "Foto", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
-                            }
-                            IconButton(onClick = {
-                                scope.launch {
-                                    val saved = withContext(Dispatchers.IO) { runCatching { StatusStorage.save(context, file) } }
-                                    Toast.makeText(context, if (saved.isSuccess) "Disimpan ke Pictures/Whats-Krdrx" else "Gagal menyimpan file.", Toast.LENGTH_SHORT).show()
+                                if (isSaved) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Default.CheckCircle, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(14.dp))
+                                        Spacer(Modifier.width(3.dp))
+                                        Text("Sudah tersimpan", fontSize = 10.sp, color = MaterialTheme.colorScheme.primary)
+                                    }
                                 }
-                            }) { Icon(Icons.Default.Download, "Simpan ke galeri") }
+                            }
+                            if (selected.isNotEmpty()) {
+                                Checkbox(checked = isSelected, onCheckedChange = { checked ->
+                                    if (checked) selected.add(key) else selected.remove(key)
+                                })
+                            } else {
+                                IconButton(onClick = {
+                                    scope.launch {
+                                        val result = withContext(Dispatchers.IO) { runCatching { StatusStorage.save(context, file) } }
+                                        Toast.makeText(
+                                            context,
+                                            if (result.isSuccess) "Disimpan ke Pictures/Whats-Krdrx" else result.exceptionOrNull()?.message ?: "Gagal menyimpan file.",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                        files.replaceAll { it.copy() }
+                                    }
+                                }, enabled = !saving && !isSaved) {
+                                    Icon(if (isSaved) Icons.Default.CheckCircle else Icons.Default.Download, if (isSaved) "Sudah disimpan" else "Simpan ke galeri")
+                                }
+                            }
                         }
                     }
                 }
@@ -310,7 +400,6 @@ private fun StatusDownloaderScreen(modifier: Modifier = Modifier) {
         )
     }
 }
-
 
 @Composable
 private fun StatusThumbnail(
