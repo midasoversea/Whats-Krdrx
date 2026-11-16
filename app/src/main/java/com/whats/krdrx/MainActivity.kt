@@ -259,10 +259,12 @@ private fun StatusDownloaderScreen(modifier: Modifier = Modifier) {
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Text("Status Downloader", fontSize = 22.sp, fontWeight = FontWeight.Bold)
-            OutlinedButton(onClick = { loadFiles() }, enabled = tree != null && !loading) {
-                Icon(Icons.Default.Refresh, null)
-                Spacer(Modifier.width(4.dp))
-                Text("Muat ulang")
+            IconButton(onClick = { loadFiles() }, enabled = tree != null && !loading) {
+                if (loading) {
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                } else {
+                    Icon(Icons.Default.Refresh, null)
+                }
             }
         }
         Spacer(Modifier.height(8.dp))
@@ -647,17 +649,24 @@ private fun NotificationArchiveScreen(modifier: Modifier = Modifier) {
     var access by remember { mutableStateOf(isNotificationAccessEnabled(context)) }
     val rows = remember { mutableStateListOf<ArchivedNotification>() }
     var confirmClear by remember { mutableStateOf(false) }
+    var refreshing by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     fun refresh() {
+        if (refreshing) return
         scope.launch {
-            access = isNotificationAccessEnabled(context)
-            val latest = withContext(Dispatchers.IO) {
-                runCatching { NotificationArchiveDb(context).use { it.all() } }
-            }
-            latest.onSuccess {
-                rows.clear()
-                rows.addAll(it)
+            refreshing = true
+            try {
+                access = isNotificationAccessEnabled(context)
+                val latest = withContext(Dispatchers.IO) {
+                    runCatching { NotificationArchiveDb(context).use { it.all() } }
+                }
+                latest.onSuccess {
+                    rows.clear()
+                    rows.addAll(it)
+                }
+            } finally {
+                refreshing = false
             }
         }
     }
@@ -671,10 +680,12 @@ private fun NotificationArchiveScreen(modifier: Modifier = Modifier) {
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Text("Arsip Notifikasi", fontSize = 22.sp, fontWeight = FontWeight.Bold)
-            OutlinedButton(onClick = { refresh() }) {
-                Icon(Icons.Default.Refresh, null)
-                Spacer(Modifier.width(4.dp))
-                Text("Muat ulang")
+            IconButton(onClick = { refresh() }, enabled = !refreshing) {
+                if (refreshing) {
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                } else {
+                    Icon(Icons.Default.Refresh, null)
+                }
             }
         }
         Spacer(Modifier.height(12.dp))
