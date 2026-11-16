@@ -10,26 +10,69 @@ permissions:
 
 jobs:
   build:
-    name: Build debug APK
+    name: Build Android APKs
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+
       - name: Set up JDK 17
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
+
       - name: Set up Gradle 8.13
         uses: gradle/actions/setup-gradle@v6
         with:
           gradle-version: '8.13'
-      - name: Build APK
+
+      - name: Build debug APK
         run: gradle --no-daemon :app:assembleDebug
-      - name: Upload APK
+
+      - name: Prepare release signing key
+        id: prepare-signing
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [[ -z "$ANDROID_KEYSTORE_BASE64" || -z "$ANDROID_KEYSTORE_PASSWORD" || -z "$ANDROID_KEY_ALIAS" || -z "$ANDROID_KEY_PASSWORD" ]]; then
+            echo "signing_ready=false" >> "$GITHUB_OUTPUT"
+            echo "Release signing secrets are not configured; release APK build is skipped."
+            exit 0
+          fi
+
+          KEYSTORE_PATH="$RUNNER_TEMP/whats-krdrx-release.jks"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
+          test -s "$KEYSTORE_PATH"
+          echo "keystore_path=$KEYSTORE_PATH" >> "$GITHUB_OUTPUT"
+          echo "signing_ready=true" >> "$GITHUB_OUTPUT"
+
+      - name: Build signed release APK
+        if: steps.prepare-signing.outputs.signing_ready == 'true'
+        env:
+          ANDROID_SIGNING_STORE_FILE: ${{ steps.prepare-signing.outputs.keystore_path }}
+          ANDROID_SIGNING_STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_SIGNING_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_SIGNING_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: gradle --no-daemon :app:assembleRelease
+
+      - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
           name: Whats-Krdrx-debug
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
+
+      - name: Upload signed release APK
+        if: steps.prepare-signing.outputs.signing_ready == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Whats-Krdrx-release
+          path: app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+          retention-days: 30
