@@ -29,6 +29,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.produceState
@@ -53,6 +55,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -647,6 +650,7 @@ private fun NotificationArchiveScreen(modifier: Modifier = Modifier) {
     var confirmClear by remember { mutableStateOf(false) }
     var refreshing by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    val pullToRefreshState = rememberPullToRefreshState()
 
     fun refresh() {
         access = isNotificationAccessEnabled(context)
@@ -678,24 +682,44 @@ private fun NotificationArchiveScreen(modifier: Modifier = Modifier) {
         }
 
         PullToRefreshBox(
+            state = pullToRefreshState,
             isRefreshing = refreshing,
             onRefresh = {
                 if (!refreshing) {
                     scope.launch {
                         refreshing = true
-                        access = isNotificationAccessEnabled(context)
-                        val latest = withContext(Dispatchers.IO) {
-                            runCatching { NotificationArchiveDb(context).use { it.all() } }
+                        try {
+                            access = isNotificationAccessEnabled(context)
+                            val latest = withContext(Dispatchers.IO) {
+                                runCatching { NotificationArchiveDb(context).use { it.all() } }
+                            }
+                            latest.onSuccess {
+                                rows.clear()
+                                rows.addAll(it)
+                            }
+                            // Keep the spinner visible long enough to be perceived.
+                            delay(700)
+                        } finally {
+                            refreshing = false
                         }
-                        latest.onSuccess {
-                            rows.clear()
-                            rows.addAll(it)
-                        }
-                        refreshing = false
                     }
                 }
             },
-            modifier = Modifier.weight(1f).fillMaxWidth()
+            modifier = Modifier.weight(1f).fillMaxWidth(),
+            indicator = {
+                if (refreshing) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.align(Alignment.TopCenter).padding(top = 16.dp).size(24.dp),
+                        strokeWidth = 2.dp
+                    )
+                } else {
+                    PullToRefreshDefaults.Indicator(
+                        state = pullToRefreshState,
+                        isRefreshing = false,
+                        modifier = Modifier.align(Alignment.TopCenter)
+                    )
+                }
+            }
         ) {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
