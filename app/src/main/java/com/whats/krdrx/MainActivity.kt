@@ -488,6 +488,7 @@ private fun formatVideoTime(milliseconds: Int): String {
     return "%d:%02d".format(totalSeconds / 60, totalSeconds % 60)
 }
 
+@Composable
 private fun NotificationArchiveScreen(modifier: Modifier = Modifier) {
     val context = LocalContext.current
     var access by remember { mutableStateOf(isNotificationAccessEnabled(context)) }
