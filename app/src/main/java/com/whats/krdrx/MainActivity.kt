@@ -18,6 +18,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.*
@@ -123,15 +124,20 @@ private fun WhatsKrdrxApp(darkMode: Boolean, onToggleTheme: () -> Unit) {
             TopAppBar(
                 title = {
                     Column {
-                        Text("Whats-Krdrx", fontWeight = FontWeight.Bold)
-                        Text("WhatsApp Companion", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f))
+                        Text("Whats-Krdrx", fontWeight = FontWeight.Bold, color = Color.White)
+                        Text("WhatsApp Companion", fontSize = 11.sp, color = Color.White.copy(alpha = 0.82f))
                     }
                 },
                 actions = {
                     IconButton(onClick = onToggleTheme) {
-                        Icon(if (darkMode) Icons.Default.LightMode else Icons.Default.DarkMode, "Ganti tema")
+                        Icon(if (darkMode) Icons.Default.LightMode else Icons.Default.DarkMode, "Ganti tema", tint = Color.White)
                     }
-                }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = DarkGreen,
+                    titleContentColor = Color.White,
+                    actionIconContentColor = Color.White
+                )
             )
         },
         bottomBar = {
@@ -254,16 +260,16 @@ private fun StatusDownloaderScreen(modifier: Modifier = Modifier) {
 
     Column(modifier.fillMaxSize().padding(16.dp)) {
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(DarkGreen).padding(horizontal = 12.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text("Status Downloader", fontSize = 22.sp, fontWeight = FontWeight.Bold)
+            Text("Status Downloader", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White)
             IconButton(onClick = { loadFiles() }, enabled = tree != null && !loading) {
                 if (loading) {
-                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = Color.White)
                 } else {
-                    Icon(Icons.Default.Refresh, null)
+                    Icon(Icons.Default.Refresh, null, tint = Color.White)
                 }
             }
         }
@@ -675,16 +681,16 @@ private fun NotificationArchiveScreen(modifier: Modifier = Modifier) {
 
     Column(modifier.fillMaxSize().padding(16.dp)) {
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(DarkGreen).padding(horizontal = 12.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text("Arsip Notifikasi", fontSize = 22.sp, fontWeight = FontWeight.Bold)
+            Text("Arsip Notifikasi", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White)
             IconButton(onClick = { refresh() }, enabled = !refreshing) {
                 if (refreshing) {
-                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = Color.White)
                 } else {
-                    Icon(Icons.Default.Refresh, null)
+                    Icon(Icons.Default.Refresh, null, tint = Color.White)
                 }
             }
         }
@@ -775,17 +781,22 @@ private fun InfoCard(title: String, description: String) {
 
 @Composable
 private fun SimpleScreen(title: String, description: String, modifier: Modifier = Modifier) {
-    Column(modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(title, fontSize = 22.sp, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(8.dp))
-        Text(description, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
+    Column(modifier.fillMaxSize().padding(16.dp)) {
+        Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), color = DarkGreen) {
+            Text(title, modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp), fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White)
+        }
+        Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+            Text(description, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
+        }
     }
 }
 
 @Composable
 private fun SettingsScreen(darkMode: Boolean, onToggleTheme: () -> Unit, modifier: Modifier = Modifier) {
     Column(modifier.fillMaxSize().padding(20.dp)) {
-        Text("Pengaturan", fontSize = 24.sp, fontWeight = FontWeight.Bold)
+        Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), color = DarkGreen) {
+            Text("Pengaturan", modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp), fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White)
+        }
         Spacer(Modifier.height(18.dp))
         Card {
             Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
