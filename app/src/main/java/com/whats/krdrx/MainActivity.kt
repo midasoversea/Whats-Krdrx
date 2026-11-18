@@ -103,6 +103,7 @@ private fun WhatsKrdrxTheme(darkMode: Boolean, content: @Composable () -> Unit) 
 @Composable
 private fun WhatsKrdrxApp(darkMode: Boolean, onToggleTheme: () -> Unit) {
     var tab by rememberSaveable { mutableIntStateOf(0) }
+    var dashboard by remember { mutableStateOf(DashboardState()) }
     val tabs = listOf(
         Triple(Icons.Default.Dashboard, "Dasbor", "Dasbor"),
         Triple(Icons.Default.Image, "Status", "Status"),
@@ -146,7 +147,12 @@ private fun WhatsKrdrxApp(darkMode: Boolean, onToggleTheme: () -> Unit) {
         }
     ) { padding ->
         when (tab) {
-            0 -> DashboardScreen(onOpenTab = { tab = it }, modifier = Modifier.padding(padding))
+            0 -> DashboardScreen(
+                state = dashboard,
+                onStateChange = { dashboard = it },
+                onOpenTab = { tab = it },
+                modifier = Modifier.padding(padding)
+            )
             1 -> StatusDownloaderScreen(Modifier.padding(padding))
             2 -> NotificationArchiveScreen(Modifier.padding(padding))
             3 -> SimpleScreen("WhatsApp Tools", "Modul alat bantu tambahan akan dikembangkan setelah dua fitur utama stabil.", Modifier.padding(padding))
@@ -201,10 +207,14 @@ private fun loadDashboard(context: Context): DashboardState {
 }
 
 @Composable
-private fun DashboardScreen(onOpenTab: (Int) -> Unit, modifier: Modifier = Modifier) {
+private fun DashboardScreen(
+    state: DashboardState,
+    onStateChange: (DashboardState) -> Unit,
+    onOpenTab: (Int) -> Unit,
+    modifier: Modifier = Modifier
+) {
     val context = LocalContext.current
     val activity = context as? ComponentActivity
-    var state by remember { mutableStateOf(DashboardState()) }
     var refreshKey by remember { mutableIntStateOf(0) }
 
     DisposableEffect(activity) {
@@ -215,44 +225,56 @@ private fun DashboardScreen(onOpenTab: (Int) -> Unit, modifier: Modifier = Modif
         onDispose { activity?.lifecycle?.removeObserver(observer) }
     }
     LaunchedEffect(refreshKey) {
-        state = withContext(Dispatchers.IO) { loadDashboard(context) }
+        onStateChange(withContext(Dispatchers.IO) { loadDashboard(context) })
     }
 
+    val loaded = state.loaded
     LazyColumn(
-        modifier = modifier.fillMaxSize().padding(horizontal = 16.dp),
+        modifier = modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         item {
-            Spacer(Modifier.height(8.dp))
-            Text("Dasbor", fontSize = 22.sp, fontWeight = FontWeight.Bold)
-            if (!state.loaded) {
-                Spacer(Modifier.height(8.dp))
-                LinearProgressIndicator(Modifier.fillMaxWidth())
+            Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), color = DarkGreen) {
+                Text(
+                    "Dasbor",
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
             }
         }
         item {
             DashboardCard(
                 icon = Icons.Default.Notifications,
                 title = "Akses notifikasi",
-                detail = if (state.accessEnabled) "Aktif. Pesan baru dicatat ke arsip."
-                else "Mati. Arsip tidak mencatat pesan baru.",
-                ok = state.accessEnabled,
+                detail = when {
+                    !loaded -> "Memeriksa..."
+                    state.accessEnabled -> "Aktif. Pesan baru dicatat ke arsip."
+                    else -> "Mati. Arsip tidak mencatat pesan baru."
+                },
+                ok = !loaded || state.accessEnabled,
                 actionLabel = if (state.accessEnabled) "Periksa" else "Aktifkan",
+                actionEnabled = loaded,
                 onAction = { context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
             )
         }
         item {
+            val folderOk = state.treeSelected && !state.folderError
             DashboardCard(
                 icon = Icons.Default.Image,
                 title = "Folder status",
                 detail = when {
+                    !loaded -> "Memeriksa..."
                     !state.treeSelected -> "Folder .Statuses belum dipilih."
                     state.folderError -> "Folder tidak dapat dibaca. Pilih ulang."
                     state.statusTotal == 0 -> "Tidak ada status ditemukan."
                     else -> "${state.statusTotal} status, ${state.statusUnsaved} belum disimpan."
                 },
-                ok = state.treeSelected && !state.folderError,
-                actionLabel = if (state.treeSelected && !state.folderError) "Buka" else "Pilih",
+                ok = !loaded || folderOk,
+                actionLabel = if (folderOk) "Buka" else "Pilih",
+                actionEnabled = loaded,
                 onAction = { onOpenTab(1) }
             )
         }
@@ -260,13 +282,13 @@ private fun DashboardScreen(onOpenTab: (Int) -> Unit, modifier: Modifier = Modif
             DashboardCard(
                 icon = Icons.Default.Archive,
                 title = "Arsip notifikasi",
-                detail = "${state.archiveToday} hari ini  •  ${state.archiveTotal} tercatat",
+                detail = if (loaded) "${state.archiveToday} hari ini  •  ${state.archiveTotal} tercatat" else "Memeriksa...",
                 ok = true,
                 actionLabel = "Buka",
+                actionEnabled = loaded,
                 onAction = { onOpenTab(2) }
             )
         }
-        item { Spacer(Modifier.height(10.dp)) }
     }
 }
 
@@ -277,7 +299,8 @@ private fun DashboardCard(
     detail: String,
     ok: Boolean,
     actionLabel: String,
-    onAction: () -> Unit
+    onAction: () -> Unit,
+    actionEnabled: Boolean = true
 ) {
     Card(
         Modifier.fillMaxWidth(),
@@ -299,7 +322,7 @@ private fun DashboardCard(
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
                 )
             }
-            TextButton(onClick = onAction) { Text(actionLabel) }
+            TextButton(onClick = onAction, enabled = actionEnabled) { Text(actionLabel) }
         }
     }
 }
