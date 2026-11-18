@@ -99,26 +99,18 @@ private fun WhatsKrdrxTheme(darkMode: Boolean, content: @Composable () -> Unit) 
     MaterialTheme(colorScheme = scheme, content = content)
 }
 
-private data class Feature(val title: String, val description: String, val icon: ImageVector, val status: String = "AKTIF")
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun WhatsKrdrxApp(darkMode: Boolean, onToggleTheme: () -> Unit) {
     var tab by rememberSaveable { mutableIntStateOf(0) }
     val tabs = listOf(
-        Triple(Icons.Default.Home, "Beranda", "Home"),
+        Triple(Icons.Default.Dashboard, "Dasbor", "Dasbor"),
         Triple(Icons.Default.Image, "Status", "Status"),
         Triple(Icons.Default.Notifications, "Pesan", "Pesan"),
         Triple(Icons.Default.Build, "Tools", "Tools"),
         Triple(Icons.Default.Settings, "Setelan", "Settings")
     )
     BackHandler(enabled = tab != 0) { tab = 0 }
-    val features = listOf(
-        Feature("Status Downloader", "Pilih folder .Statuses, lalu simpan foto dan video ke galeri.", Icons.Default.Image),
-        Feature("Arsip Notifikasi", "Catat teks pesan yang ditampilkan oleh notifikasi WhatsApp.", Icons.Default.Notifications),
-        Feature("WhatsApp Tools", "Kumpulan alat bantu WhatsApp.", Icons.Default.Build, "SEGERA"),
-        Feature("Privacy & Security", "Kontrol arsip dan data lokal.", Icons.Default.Security)
-    )
     Scaffold(
         topBar = {
             TopAppBar(
@@ -154,7 +146,7 @@ private fun WhatsKrdrxApp(darkMode: Boolean, onToggleTheme: () -> Unit) {
         }
     ) { padding ->
         when (tab) {
-            0 -> HomeScreen(features, Modifier.padding(padding))
+            0 -> DashboardScreen(onOpenTab = { tab = it }, modifier = Modifier.padding(padding))
             1 -> StatusDownloaderScreen(Modifier.padding(padding))
             2 -> NotificationArchiveScreen(Modifier.padding(padding))
             3 -> SimpleScreen("WhatsApp Tools", "Modul alat bantu tambahan akan dikembangkan setelah dua fitur utama stabil.", Modifier.padding(padding))
@@ -163,42 +155,152 @@ private fun WhatsKrdrxApp(darkMode: Boolean, onToggleTheme: () -> Unit) {
     }
 }
 
+private data class DashboardState(
+    val loaded: Boolean = false,
+    val accessEnabled: Boolean = false,
+    val treeSelected: Boolean = false,
+    val folderError: Boolean = false,
+    val statusTotal: Int = 0,
+    val statusUnsaved: Int = 0,
+    val archiveToday: Int = 0,
+    val archiveTotal: Int = 0
+)
+
+private fun loadDashboard(context: Context): DashboardState {
+    val access = isNotificationAccessEnabled(context)
+    val tree = StatusStorage.savedTree(context)
+    var total = 0
+    var unsaved = 0
+    var folderError = false
+    if (tree != null) {
+        runCatching { StatusStorage.list(context, tree) }
+            .onSuccess { list ->
+                total = list.size
+                unsaved = list.count { !StatusStorage.isSaved(context, it) }
+            }
+            .onFailure { folderError = true }
+    }
+    val rows = runCatching { NotificationArchiveDb(context).use { it.all() } }
+        .getOrDefault(emptyList())
+    val startOfDay = java.util.Calendar.getInstance().apply {
+        set(java.util.Calendar.HOUR_OF_DAY, 0)
+        set(java.util.Calendar.MINUTE, 0)
+        set(java.util.Calendar.SECOND, 0)
+        set(java.util.Calendar.MILLISECOND, 0)
+    }.timeInMillis
+    return DashboardState(
+        loaded = true,
+        accessEnabled = access,
+        treeSelected = tree != null,
+        folderError = folderError,
+        statusTotal = total,
+        statusUnsaved = unsaved,
+        archiveToday = rows.count { it.receivedAt >= startOfDay },
+        archiveTotal = rows.size
+    )
+}
+
 @Composable
-private fun HomeScreen(features: List<Feature>, modifier: Modifier = Modifier) {
+private fun DashboardScreen(onOpenTab: (Int) -> Unit, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val activity = context as? ComponentActivity
+    var state by remember { mutableStateOf(DashboardState()) }
+    var refreshKey by remember { mutableIntStateOf(0) }
+
+    DisposableEffect(activity) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) refreshKey++
+        }
+        activity?.lifecycle?.addObserver(observer)
+        onDispose { activity?.lifecycle?.removeObserver(observer) }
+    }
+    LaunchedEffect(refreshKey) {
+        state = withContext(Dispatchers.IO) { loadDashboard(context) }
+    }
+
     LazyColumn(
         modifier = modifier.fillMaxSize().padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         item {
             Spacer(Modifier.height(8.dp))
-            Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), color = DarkGreen) {
-                Column(Modifier.padding(20.dp)) {
-                    Text("Whats-Krdrx", color = Color.White, fontSize = 25.sp, fontWeight = FontWeight.Bold)
-                    Spacer(Modifier.height(5.dp))
-                    Text("Pendamping praktis untuk media dan notifikasi WhatsApp.", color = Color.White.copy(alpha = 0.9f))
-                    Spacer(Modifier.height(14.dp))
-                    Text("Versi 1.4.2  •  Android 11+", color = Color.White.copy(alpha = 0.72f), fontSize = 12.sp)
-                }
+            Text("Dasbor", fontSize = 22.sp, fontWeight = FontWeight.Bold)
+            if (!state.loaded) {
+                Spacer(Modifier.height(8.dp))
+                LinearProgressIndicator(Modifier.fillMaxWidth())
             }
         }
         item {
-            Text("Fitur utama", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            DashboardCard(
+                icon = Icons.Default.Notifications,
+                title = "Akses notifikasi",
+                detail = if (state.accessEnabled) "Aktif. Pesan baru dicatat ke arsip."
+                else "Mati. Arsip tidak mencatat pesan baru.",
+                ok = state.accessEnabled,
+                actionLabel = if (state.accessEnabled) "Periksa" else "Aktifkan",
+                onAction = { context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
+            )
         }
-        items(features) { feature ->
-            Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
-                Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primary.copy(alpha = 0.13f), modifier = Modifier.size(44.dp)) {
-                        Icon(feature.icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(10.dp))
-                    }
-                    Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
-                        Text(feature.title, fontWeight = FontWeight.SemiBold)
-                        Text(feature.description, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f))
-                    }
-                    Text(feature.status, color = MaterialTheme.colorScheme.primary, fontSize = 9.sp, fontWeight = FontWeight.Bold)
-                }
-            }
+        item {
+            DashboardCard(
+                icon = Icons.Default.Image,
+                title = "Folder status",
+                detail = when {
+                    !state.treeSelected -> "Folder .Statuses belum dipilih."
+                    state.folderError -> "Folder tidak dapat dibaca. Pilih ulang."
+                    state.statusTotal == 0 -> "Tidak ada status ditemukan."
+                    else -> "${state.statusTotal} status, ${state.statusUnsaved} belum disimpan."
+                },
+                ok = state.treeSelected && !state.folderError,
+                actionLabel = if (state.treeSelected && !state.folderError) "Buka" else "Pilih",
+                onAction = { onOpenTab(1) }
+            )
+        }
+        item {
+            DashboardCard(
+                icon = Icons.Default.Archive,
+                title = "Arsip notifikasi",
+                detail = "${state.archiveToday} hari ini  •  ${state.archiveTotal} tercatat",
+                ok = true,
+                actionLabel = "Buka",
+                onAction = { onOpenTab(2) }
+            )
         }
         item { Spacer(Modifier.height(10.dp)) }
+    }
+}
+
+@Composable
+private fun DashboardCard(
+    icon: ImageVector,
+    title: String,
+    detail: String,
+    ok: Boolean,
+    actionLabel: String,
+    onAction: () -> Unit
+) {
+    Card(
+        Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (ok) MaterialTheme.colorScheme.surface
+            else MaterialTheme.colorScheme.errorContainer
+        )
+    ) {
+        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                icon, null, modifier = Modifier.size(28.dp),
+                tint = if (ok) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+            )
+            Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                Text(title, fontWeight = FontWeight.SemiBold)
+                Text(
+                    detail, fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                )
+            }
+            TextButton(onClick = onAction) { Text(actionLabel) }
+        }
     }
 }
 
