@@ -155,7 +155,7 @@ private fun WhatsKrdrxApp(darkMode: Boolean, onToggleTheme: () -> Unit) {
             )
             1 -> StatusDownloaderScreen(Modifier.padding(padding))
             2 -> NotificationArchiveScreen(Modifier.padding(padding))
-            3 -> SimpleScreen("WhatsApp Tools", "Modul alat bantu tambahan akan dikembangkan setelah dua fitur utama stabil.", Modifier.padding(padding))
+            3 -> StatusOptimizerScreen(Modifier.padding(padding))
             else -> SettingsScreen(darkMode, onToggleTheme, Modifier.padding(padding))
         }
     }
