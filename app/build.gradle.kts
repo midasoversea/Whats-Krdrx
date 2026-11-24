@@ -15,6 +15,8 @@ val hasReleaseSigning = listOf(
     signingKeyPassword
 ).all { !it.isNullOrBlank() }
 
+val media3Version = "1.9.0"
+
 android {
     namespace = "com.whats.krdrx"
     compileSdk = 36
@@ -23,8 +25,8 @@ android {
         applicationId = "com.whats.krdrx"
         minSdk = 30
         targetSdk = 35
-        versionCode = 13
-        versionName = "1.4.7"
+        versionCode = 14
+        versionName = "1.5.0"
     }
 
     signingConfigs {
@@ -68,5 +70,11 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.9.3")
+
+    // Status Media Optimizer (kompresi video H.264 tanpa FFmpeg)
+    implementation("androidx.media3:media3-common:$media3Version")
+    implementation("androidx.media3:media3-effect:$media3Version")
+    implementation("androidx.media3:media3-transformer:$media3Version")
+
     debugImplementation("androidx.compose.ui:ui-tooling")
 }
