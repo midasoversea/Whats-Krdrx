@@ -34,50 +34,45 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
+private const val COUNTRY_CODE = "62"
+private const val MIN_LOCAL_DIGITS = 8
+private const val MAX_LOCAL_DIGITS = 13
+
 /**
- * Konversi otomatis saat mengetik nomor.
+ * Nomor Indonesia saja. Kode negara +62 sudah tertulis tetap di depan kolom,
+ * sehingga kolom hanya menyimpan nomor lokal TANPA angka 0 di depan.
  *
- * - "08123..."      -> "+628123..."  (awalan 0 dianggap nomor Indonesia)
- * - "628123..."     -> "+628123..."
- * - "0062812..."    -> "+62812..."   (awalan 00 = kode internasional)
- * - "+6208123..."   -> "+628123..."  (angka 0 setelah kode 62 dibuang)
- * - Spasi, tanda hubung, titik, dan tanda kurung dibuang.
- * - Nomor lain yang tidak diawali 0 / 62 / + dibiarkan apa adanya.
+ * Contoh input (termasuk hasil tempel/paste) -> nilai kolom:
+ * - "08123456789"      -> "8123456789"
+ * - "0812-3456-7890"   -> "81234567890"
+ * - "628123456789"     -> "8123456789"
+ * - "+62 812 3456"     -> "8123456"
+ * - "+6208123..."      -> "8123..."   (angka 0 setelah +62 dibuang)
+ * - "0062812345"       -> "812345"
+ * - "+62 21 5555 1234" -> "2155551234" (telepon rumah juga diterima)
+ *
+ * Awalan "62" tanpa tanda "+" hanya dibuang jika diikuti 8 atau 0, agar nomor
+ * telepon rumah berkode area 062x tidak ikut terpotong.
  */
-internal fun autoConvertPhone(input: String): String {
-    val cleaned = input.filter { it.isDigit() || it == '+' }
-    val hasPlus = cleaned.startsWith("+")
-    var digits = cleaned.filter { it.isDigit() }
-    var international = hasPlus
-
-    when {
-        hasPlus -> Unit
-        digits.startsWith("00") -> {
-            digits = digits.drop(2)
-            international = true
-        }
-        digits.startsWith("0") -> {
-            digits = "62" + digits.drop(1)
-            international = true
-        }
-        digits.startsWith("62") -> international = true
+internal fun normalizeIndonesianLocal(input: String): String {
+    val trimmed = input.trim()
+    val hasPlus = trimmed.startsWith("+")
+    var digits = trimmed.filter { it.isDigit() }
+    digits = when {
+        digits.startsWith("00$COUNTRY_CODE") -> digits.drop(2 + COUNTRY_CODE.length)
+        digits.startsWith(COUNTRY_CODE) &&
+            (hasPlus || (digits.length > COUNTRY_CODE.length && digits[COUNTRY_CODE.length] in "80")) ->
+            digits.drop(COUNTRY_CODE.length)
+        else -> digits
     }
-
-    // Nomor Indonesia tidak pernah memiliki angka 0 tepat setelah kode negara 62.
-    if (international && digits.startsWith("620")) {
-        digits = "62" + digits.drop(3)
-    }
-
-    return if (international) "+$digits" else digits
+    return digits.trimStart('0').take(MAX_LOCAL_DIGITS)
 }
 
-/** Valid bila diawali "+" dan memiliki 8 sampai 15 digit (batas E.164). */
-internal fun isValidPhone(number: String): Boolean =
-    number.startsWith("+") && number.count { it.isDigit() } in 8..15
+internal fun isValidIndonesianLocal(local: String): Boolean =
+    local.length in MIN_LOCAL_DIGITS..MAX_LOCAL_DIGITS
 
-private fun openDirectChat(context: Context, number: String, message: String, packageName: String): Boolean {
-    val digits = number.filter { it.isDigit() }
-    val uri = Uri.parse("https://wa.me/$digits").buildUpon().apply {
+private fun openDirectChat(context: Context, localNumber: String, message: String, packageName: String): Boolean {
+    val uri = Uri.parse("https://wa.me/$COUNTRY_CODE$localNumber").buildUpon().apply {
         if (message.isNotBlank()) appendQueryParameter("text", message)
     }.build()
     val intent = Intent(Intent.ACTION_VIEW, uri).setPackage(packageName)
@@ -94,7 +89,7 @@ fun DirectChatSection(hasWhatsApp: Boolean, hasBusiness: Boolean) {
     val context = LocalContext.current
     var number by rememberSaveable { mutableStateOf("") }
     var message by rememberSaveable { mutableStateOf("") }
-    val valid = isValidPhone(number)
+    val valid = isValidIndonesianLocal(number)
 
     fun open(packageName: String) {
         if (!openDirectChat(context, number, message, packageName)) {
@@ -105,25 +100,26 @@ fun DirectChatSection(hasWhatsApp: Boolean, hasBusiness: Boolean) {
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(
-                "Kirim pesan ke nomor tanpa menyimpan kontak.",
+                "Kirim pesan ke nomor Indonesia tanpa menyimpan kontak.",
                 fontSize = 12.sp,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
             )
             OutlinedTextField(
                 value = number,
-                onValueChange = { number = autoConvertPhone(it) },
+                onValueChange = { number = normalizeIndonesianLocal(it) },
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text("Nomor WhatsApp") },
-                placeholder = { Text("08123456789") },
+                prefix = { Text("+62 ") },
+                placeholder = { Text("8123456789") },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
                 isError = number.isNotEmpty() && !valid,
                 supportingText = {
                     Text(
                         when {
-                            number.isEmpty() -> "Ketik 08... atau +kode negara. Awalan 0 otomatis menjadi +62."
-                            !valid -> "Belum valid: harus diawali kode negara (+) dengan 8-15 digit."
-                            else -> "Siap dikirim ke $number"
+                            number.isEmpty() -> "Isi tanpa angka 0 di depan, contoh: 8123456789."
+                            !valid -> "Belum valid: $MIN_LOCAL_DIGITS-$MAX_LOCAL_DIGITS digit setelah +62."
+                            else -> "Siap dikirim ke +62$number"
                         }
                     )
                 },
