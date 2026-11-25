@@ -1,5 +1,7 @@
 package com.whats.krdrx
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -9,6 +11,7 @@ import android.util.Size
 import android.widget.VideoView
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.widget.Toast
@@ -774,6 +777,16 @@ private fun formatVideoTime(milliseconds: Int): String {
     return "%d:%02d".format(totalSeconds / 60, totalSeconds % 60)
 }
 
+private fun copyToClipboard(context: Context, label: String, text: String) {
+    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    clipboard.setPrimaryClip(ClipData.newPlainText(label, text))
+    // Android 13+ sudah menampilkan konfirmasi sendiri; tampilkan Toast hanya di versi lama.
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+        Toast.makeText(context, "Pesan disalin", Toast.LENGTH_SHORT).show()
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun NotificationArchiveScreen(modifier: Modifier = Modifier) {
     val context = LocalContext.current
@@ -856,16 +869,34 @@ private fun NotificationArchiveScreen(modifier: Modifier = Modifier) {
                     }
                 } else {
                     items(rows, key = { it.id }) { row ->
-                        Card {
-                            Column(Modifier.fillMaxWidth().padding(12.dp)) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(row.sender, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                                    Text(SimpleDateFormat("dd/MM HH:mm", Locale.getDefault()).format(Date(row.receivedAt)), fontSize = 10.sp)
+                        var menuOpen by remember { mutableStateOf(false) }
+                        Box {
+                            Card(
+                                Modifier.fillMaxWidth().combinedClickable(
+                                    onClick = {},
+                                    onLongClick = { menuOpen = true }
+                                )
+                            ) {
+                                Column(Modifier.fillMaxWidth().padding(12.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(row.sender, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                                        Text(SimpleDateFormat("dd/MM HH:mm", Locale.getDefault()).format(Date(row.receivedAt)), fontSize = 10.sp)
+                                    }
+                                    Spacer(Modifier.height(5.dp))
+                                    Text(row.message, fontSize = 14.sp)
+                                    Spacer(Modifier.height(4.dp))
+                                    Text("Sumber: notifikasi Android", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f))
                                 }
-                                Spacer(Modifier.height(5.dp))
-                                Text(row.message, fontSize = 14.sp)
-                                Spacer(Modifier.height(4.dp))
-                                Text("Sumber: notifikasi Android", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f))
+                            }
+                            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                                DropdownMenuItem(
+                                    text = { Text("Salin pesan") },
+                                    leadingIcon = { Icon(Icons.Default.ContentCopy, contentDescription = null) },
+                                    onClick = {
+                                        menuOpen = false
+                                        copyToClipboard(context, "Pesan", row.message)
+                                    }
+                                )
                             }
                         }
                     }
